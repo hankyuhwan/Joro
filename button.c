@@ -1,91 +1,69 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <linux/input.h>
-#include <unistd.h> // for open/close
-#include <fcntl.h> // for O_RDWR
-#include <sys/ioctl.h> // for ioctl
-#include <sys/msg.h>
-#include <pthread.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <dirent.h>
 
-#include "button.h"
+#define MAX_SCALE_STEP		8
+#define BUZZER_BASE_SYS_PATH	"/sys/bus/platform/devices/"
+#define BUZZER_FILENAME  "peribuzzer"
+#define BUZZER_ENABLE_NAME		"enable"
+#define BUZZER_FREQUENCY_NAME	"frequency"
+char gBuzzerBaseSysDir[128];
 
-// first read input device
-#define  	INPUT_DEVICE_LIST	"/dev/input/event"		//실제 디바이스 드라이버 노드파일: 뒤에 숫자가 붙음., ex)/dev/input/event5
-#define 	PROBE_FILE	"/proc/bus/input/devices"		//PPT에 제시된 "이 파일을 까보면 event? 의 숫자를 알수 있다"는 바로 그 파일
-
-
-#define HAVE_TO_FIND_1 	"N: Name=\"ecube-button\"\n"
-#define HAVE_TO_FIND_2	"H: Handlers=kbd event"
-
-int probeButtonPath(char *newPath)
+const int musicScale[MAX_SCALE_STEP] =
 {
-	int returnValue = 0;	//button에 해당하는 event#을 찾았나?
-	int number = 0;			//찾았다면 여기에 집어넣자
-	FILE *fp = fopen(PROBE_FILE,"rt");	//파일을 열고
-	
-	while(!feof(fp))	//파일 끝까지 읽어들인다.
+	262, // do
+	294,
+	330,
+	349,
+	392,
+	440,
+	494,  // si
+	523
+};
+
+int findBuzzerSysPath()
+{
+	DIR * dir_info = opendir(BUZZER_BASE_SYS_PATH);
+	int ifFound = 0;
+	if (dir_info != NULL)
 	{
-		char tmpStr[200];  //200자를 읽을 수 있게 버퍼
-		fgets(tmpStr,200,fp);	//최대 200자를 읽어봄
-		//printf ("%s",tmpStr);
-		if (strcmp(tmpStr,HAVE_TO_FIND_1) == 0)
-		{
-			printf("YES! I found!: %s\r\n", tmpStr);
-			returnValue = 1;	//찾음
-		}
-		if ( (returnValue == 1) && 	//찾은 상태에서
-    	(strncasecmp(tmpStr, HAVE_TO_FIND_2, strlen(HAVE_TO_FIND_2)) == 0) ) //Event??을 찾았으면
+		while (1)
 		{	
-			printf ("-->%s",tmpStr);			
-			printf("\t%c\r\n",tmpStr[strlen(tmpStr)-3]);
-			number = tmpStr[strlen(tmpStr)-3] - '0';	//Ascii character '0'-'9' (0x30-0x39) to interger(0)
-		break; //while 문 탈출
+			struct dirent  *dir_entry;
+			dir_entry = readdir (dir_info);
+			if (dir_entry == NULL)	break;
+			if (strncasecmp(BUZZER_FILENAME, dir_entry->d_name, strlen(BUZZER_FILENAME)) == 0)
+			{
+				ifFound = 1;
+				sprintf(gBuzzerBaseSysDir,"%s%s/",BUZZER_BASE_SYS_PATH,dir_entry->d_name);
+			}
 		}
 	}
-	//이 상황에서 number에는 event? 중 ? 에 해당하는 숫자가 들어가 있다.
-	fclose(fp);	
-	if (returnValue == 1)
-	sprintf (newPath,"%s%d",INPUT_DEVICE_LIST,number);
-	//인자로 들어온 newPath 포인터에 
-	//  /dev/input/event? 의 스트링을 채움
-	return returnValue;
-}
+	printf("find %s\n",gBuzzerBaseSysDir);
 
-static char buttonPath[200];
-static int fd;
-static int msgID;
-static pthread_t buttonTh_id;
-static void *buttonThFunc(void* arg)
-{    
-	BUTTON_MSG_T msgTx;
-	msgTx.messageNum = 1;
-	struct input_event stEvent;
-	while (1)
-	{
-		read(fd, &stEvent, sizeof (stEvent));
-		printf ("Event Occur!\r\n");
-		if ( ( stEvent.type == EV_KEY) )
-		{
-			msgTx.keyInput = stEvent.code;
-			msgTx.pressed = stEvent.value;
-			msgsnd(msgID, &msgTx, sizeof(msgTx) - sizeof(long int), 0);
-		}
-    }
+	return ifFound; 
 }
-
-int buttonInit(void)
+static int fdEnable;
+static int fdFreq;
+int buzzerInit(void)
 {
-	if (probeButtonPath(buttonPath) == 0)
-		return 0;
-	fd=open (buttonPath, O_RDONLY);
-	msgID = msgget (MESSAGE_ID, IPC_CREAT|0666);
-	pthread_create(&buttonTh_id, NULL, buttonThFunc, NULL);
+	if ( findBuzzerSysPath()==0 )	return 0;
+
+	char path[200];
+	sprintf(path,"%s%s",gBuzzerBaseSysDir,BUZZER_ENABLE_NAME);
+	fdEnable=open(path,O_WRONLY);
+
+	sprintf(path,"%s%s",gBuzzerBaseSysDir,BUZZER_FREQUENCY_NAME);
+	fdFreq=open(path,O_WRONLY);
+
 	return 1;
 }
-
-int buttonExit(void)
+//BUZZER �︮�� ���� �Լ���
+void buzzerEnable(int bEnable) 
 {
-	pthread_cancel(buttonTh_id);
-	close(fd);
+	if ( bEnable)	write(fdEnable, &"1", 1);
+	else  write(fdEnable, &"0", 1);
 }
