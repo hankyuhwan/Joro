@@ -1,0 +1,2 @@
+test.elf: test.cpp
+	arm-linux-gnueabi-g++-7 -I /usr/local/include/opencv4 test.cpp -o test.elf -L /home/choi/opencv/opencv-4.0.1/arm-build-s/lib -L. -L /usr/local/lib/opencv4/3rdparty -Wl,--start-group -l opencv_highgui -lopencv_imgproc -lopencv_core -lstdc++ -lopencv_videoio -lopencv_imgcodecs -lm -lzlib -llibtiff -lpthread -llibjpeg-turbo -llibpng -llibwebp -ltegra_hal -lopencv_gapi -latomic -llibjasper -ldl -lIlmImf -lquirc -llibprotobuf -Wl,--end-group --static
